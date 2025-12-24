@@ -22,8 +22,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import gymnasium as gym
-from gymnasium.spaces import Box
+import gym
+from gym.spaces import Box
 
 
 # -------------------------

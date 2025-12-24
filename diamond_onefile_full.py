@@ -780,6 +780,21 @@ def save_output(save_path: Path, cfg: Cfg, wm, re, ac, best_return: float, epoch
         "ac": ac.state_dict(),
     }
     torch.save(payload, save_path)
+    # Optionally upload checkpoint as a W&B artifact
+    if cfg.use_wandb and _WANDB_OK:
+        try:
+            art_name = f"diamond-checkpoint-{now_tag()}"
+            artifact = wandb.Artifact(name=art_name, type="model", metadata={"epoch": epoch, "best_return": best_return})
+            artifact.add_file(str(save_path))
+            # log artifact to the active run
+            if getattr(wandb, "run", None) is not None:
+                wandb.run.log_artifact(artifact)
+            else:
+                # fallback to global log_artifact
+                wandb.log_artifact(artifact)
+            print(f"W&B: uploaded artifact {art_name}")
+        except Exception as e:
+            print("W&B artifact upload failed:", e)
 
 def main():
     parser = argparse.ArgumentParser()

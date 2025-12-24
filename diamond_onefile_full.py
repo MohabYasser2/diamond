@@ -31,6 +31,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm, trange
 
 # -----------------------------
 # Gym import: prefer legacy gym for BreakoutNoFrameskip-v4.
@@ -167,7 +168,7 @@ class AtariPreprocess:
         self.rng = np.random.RandomState(seed)
 
         self.obs_buf = np.zeros((2, 210, 160), dtype=np.uint8)  # raw grayscale frames
-        self.frames = deque_maxlen(frame_stack)
+        self.frames = FrameDeque(frame_stack)
         self.action_space = env.action_space
 
         # build observation space: (C,H,W) float32 in [0,1]
@@ -244,21 +245,35 @@ class AtariPreprocess:
         # (C,H,W)
         return np.stack(list(self.frames), axis=0).astype(np.float32)
 
-class deque_maxlen(Deque[np.ndarray]):
+class FrameDeque:
+    """Simple wrapper around collections.deque with fixed maxlen.
+
+    Implements append, clear, __iter__, __len__, __getitem__, and __repr__.
+    """
     def __init__(self, maxlen: int):
         from collections import deque
         self._d = deque(maxlen=maxlen)
-        self.maxlen = maxlen
+        self._maxlen = maxlen
+
+    @property
+    def maxlen(self):
+        return self._maxlen
+
     def append(self, x):
         self._d.append(x)
+
     def clear(self):
         self._d.clear()
+
     def __iter__(self):
         return iter(self._d)
+
     def __len__(self):
         return len(self._d)
+
     def __getitem__(self, i):
         return list(self._d)[i]
+
     def __repr__(self):
         return repr(self._d)
 
@@ -628,6 +643,7 @@ def evaluate_real_env(env, ac: ActorCritic, device: str, episodes: int):
 
 def collect_real(env, rb: ReplayBuffer, ac: ActorCritic, device: str, steps: int, eps: float):
     obs = env.reset()
+    pbar = tqdm(total=steps, desc="Collect")
     for _ in range(steps):
         if random.random() < eps:
             a = env.action_space.sample()
@@ -641,11 +657,13 @@ def collect_real(env, rb: ReplayBuffer, ac: ActorCritic, device: str, steps: int
         obs = next_obs
         if done:
             obs = env.reset()
+        pbar.update(1)
+    pbar.close()
 
 def train_world_model(wm: DiffusionWorldModel, opt: torch.optim.Optimizer, rb: ReplayBuffer, cfg: Cfg):
     wm.train()
     losses = []
-    for _ in range(cfg.wm_steps):
+    for _ in trange(cfg.wm_steps, desc="WM"):
         batch = rb.sample(cfg.wm_batch)
         prev_obs = to_torch(batch["obs"], cfg.device)
         act = to_torch(batch["action"], cfg.device)
@@ -661,7 +679,7 @@ def train_world_model(wm: DiffusionWorldModel, opt: torch.optim.Optimizer, rb: R
 def train_rew_end(model: RewEndModel, opt: torch.optim.Optimizer, rb: ReplayBuffer, cfg: Cfg):
     model.train()
     losses, lr, ld = [], [], []
-    for _ in range(cfg.re_steps):
+    for _ in trange(cfg.re_steps, desc="RewEnd"):
         batch = rb.sample(cfg.re_batch)
         obs = to_torch(batch["obs"], cfg.device)
         act = to_torch(batch["action"], cfg.device)
@@ -825,7 +843,7 @@ def main():
     best_ret = -1e9
     global_step = 0
 
-    for epoch in range(cfg.epochs):
+    for epoch in trange(cfg.epochs, desc="Epochs"):
         t0 = time.time()
 
         # Anneal exploration (simple)
@@ -848,7 +866,7 @@ def main():
         rollout = imagine_rollout(wm, re, ac, start_obs, cfg)
 
         ppo_losses = []
-        for _ in range(cfg.ppo_steps):
+        for _ in trange(cfg.ppo_steps, desc="PPO"):
             l = ppo_update(ac, ac_opt, rollout, cfg)
             ppo_losses.append(l[0])
 

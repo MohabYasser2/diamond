@@ -294,7 +294,7 @@ def train_world_model(wm: SmallWorldModel, buf: ReplayBuffer, device, epochs=3, 
 				print(f"Saved world model checkpoint: {path}")
 
 
-def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldModel, buf: ReplayBuffer, device, env_name, steps=1000):
+def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldModel, buf: ReplayBuffer, device, env_name, steps=1000, save_dir=None, save_every_steps=200, logger=None):
 	# Simple A2C-like training inside imagination
 	actor.to(device)
 	wm.to(device)
@@ -302,16 +302,14 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 	wm_env = WorldModelEnv(wm, device, gym.make(env_name).action_space)
 
 	# start imagined episodes from random real observations
-	for it in range(steps):
+	for it in range(1, steps + 1):
 		# sample random starting state
 		idx = random.randint(0, len(buf) - 2)
 		start_obs = buf.obs[idx]
 		obs = wm_env.reset_from(start_obs)
-		done = False
 		traj_obs = []
 		traj_actions = []
 		traj_rewards = []
-		traj_values = []
 		for t in range(50):
 			ob_t = torch.from_numpy(obs[None]).to(device)
 			logits, value = actor(ob_t)
@@ -322,7 +320,6 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 			traj_obs.append(ob_t)
 			traj_actions.append(a)
 			traj_rewards.append(r)
-			traj_values.append(value.item())
 			obs = next_obs
 			if d:
 				break
@@ -333,6 +330,8 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 		for r in reversed(traj_rewards):
 			R = r + 0.99 * R
 			returns.insert(0, R)
+		if len(returns) == 0:
+			continue
 		returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
 		actions_t = torch.tensor(traj_actions, dtype=torch.long, device=device)
 		obs_t = torch.cat(traj_obs, dim=0)
@@ -340,7 +339,6 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 		probs = F.softmax(logits, dim=1)
 		m = torch.distributions.Categorical(probs)
 		logp = m.log_prob(actions_t)
-		values = values
 		advantage = returns_t - values
 		loss_policy = -(logp * advantage.detach()).mean()
 		loss_value = F.mse_loss(values, returns_t)
@@ -348,6 +346,26 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 		opt.zero_grad()
 		loss.backward()
 		opt.step()
+
+		if logger and (it % 10 == 0):
+			try:
+				logger.log({"ac/iter": it, "ac/loss": loss.item()})
+			except Exception:
+				pass
+		elif it % 50 == 0:
+			print(f"AC iter {it}/{steps} loss={loss.item():.6f}")
+
+		# checkpoint
+		if save_dir and (it % save_every_steps == 0):
+			path = os.path.join(save_dir, f"actor_step_{it:06d}.pt")
+			torch.save({"actor": actor.state_dict(), "opt": opt.state_dict(), "step": it}, path)
+			if logger:
+				try:
+					logger.log({"ac/checkpoint": path})
+				except Exception:
+					pass
+			else:
+				print(f"Saved actor checkpoint: {path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+*.egg
+.Python
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Data, models, logs
+data/
+datasets/
+*.csv
+*.h5
+*.npz
+models/
+checkpoints/
+weights/
+*.pt
+*.pth
+logs/
+tensorboard/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets / env
+.env
+*.pem
+*.key
+
+# Misc
+*.log
+*.sqlite
+*.sql
+
+# WandB and outputs
+wandb/
+*.wandb
+.wandb/
+outputs/

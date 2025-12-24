@@ -374,17 +374,17 @@ def train_world_model(wm: SmallWorldModel, buf: ReplayBuffer, device, epochs=3, 
 		else:
 			print(f"WM Epoch {ep}/{epochs} avg_loss={avg_loss:.6f}")
 
-		# checkpoint
+		# output
 		if save_dir and (ep % save_every_epochs == 0):
 			path = os.path.join(save_dir, f"wm_epoch_{ep:05d}.pt")
 			torch.save({"wm": wm.state_dict(), "opt": opt.state_dict(), "epoch": ep}, path)
 			if logger:
 				try:
-					logger.log({"wm/checkpoint": path})
+					logger.log({"wm/output": path})
 				except Exception:
 					pass
 			else:
-				print(f"Saved world model checkpoint: {path}")
+				print(f"Saved world model output: {path}")
 
 
 def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldModel, buf: ReplayBuffer, device, env_name, steps=1000, save_dir=None, save_every_steps=200, logger=None):
@@ -457,17 +457,17 @@ def train_actor_critic_on_imagination(actor: SmallActorCritic, wm: SmallWorldMod
 		if it % 10 == 0:
 			pbar.set_postfix({"loss": f"{loss.item():.4f}", "ep_ret": f"{ep_ret:.2f}", "avg_ret": f"{avg_recent:.2f}"})
 
-		# checkpoint
+		# output
 		if save_dir and ((it + 1) % save_every_steps == 0):
 			path = os.path.join(save_dir, f"actor_step_{it:06d}.pt")
 			torch.save({"actor": actor.state_dict(), "opt": opt.state_dict(), "step": it}, path)
 			if logger:
 				try:
-					logger.log({"ac/checkpoint": path})
+					logger.log({"ac/output": path})
 				except Exception:
 					pass
 			else:
-				print(f"Saved actor checkpoint: {path}")
+				print(f"Saved actor output: {path}")
 
 
 if __name__ == "__main__":
@@ -498,10 +498,10 @@ if __name__ == "__main__":
 	parser.add_argument("--collect", type=int, default=int(default_collect), help="number of real env steps to collect")
 	parser.add_argument("--wm_epochs", type=int, default=int(default_wm_epochs), help="world model training epochs")
 	parser.add_argument("--ac_steps", type=int, default=int(default_ac_steps), help="actor-critic imagined iterations")
-	parser.add_argument("--save-dir", type=str, default="checkpoints", help="directory to store checkpoints")
+	parser.add_argument("--save-dir", type=str, default="outputs", help="directory to store outputs")
 	parser.add_argument("--save-every-wm", type=int, default=1, help="save world model every N epochs")
 	parser.add_argument("--save-every-ac", type=int, default=200, help="save actor every N iterations")
-	parser.add_argument("--resume", action="store_true", help="resume from latest checkpoints if available")
+	parser.add_argument("--resume", action="store_true", help="resume from latest outputs if available")
 	# default wandb flag reflects config; allow overriding on CLI
 	if default_wandb:
 		parser.add_argument("--no-wandb", dest="wandb", action="store_false", help="disable wandb logging")
@@ -540,14 +540,14 @@ if __name__ == "__main__":
 	wm = SmallWorldModel(img_channels=3, action_dim=env_action_dim)
 	actor = SmallActorCritic(action_dim=env_action_dim)
 
-	# resume logic: attempt to load latest checkpoints
+	# resume logic: attempt to load latest outputs
 	if args.resume:
-		# find latest wm checkpoint
+		# find latest wm output
 		wm_files = [f for f in os.listdir(args.save_dir) if f.startswith("wm_epoch_") and f.endswith('.pt')]
 		if wm_files:
 			latest = sorted(wm_files)[-1]
 			path = os.path.join(args.save_dir, latest)
-			print("Loading WM checkpoint", path)
+			print("Loading WM output", path)
 			d = torch.load(path, map_location=device)
 			wm.load_state_dict(d['wm'])
     
@@ -555,7 +555,7 @@ if __name__ == "__main__":
 		if actor_files:
 			latest = sorted(actor_files)[-1]
 			path = os.path.join(args.save_dir, latest)
-			print("Loading actor checkpoint", path)
+			print("Loading actor output", path)
 			d = torch.load(path, map_location=device)
 			actor.load_state_dict(d['actor'])
 

@@ -24,6 +24,7 @@ import torch.nn.functional as F
 
 import gym
 from gym.spaces import Box
+from tqdm import trange, tqdm
 
 
 # -------------------------
@@ -34,6 +35,42 @@ def set_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def _reset_env(env, *args, **kwargs):
+    """Normalize env.reset to return (obs, info) for both gym and gymnasium."""
+    try:
+        res = env.reset(*args, **kwargs)
+    except TypeError:
+        # fallback for gym versions that don't accept options/seed kwargs
+        try:
+            # try with only seed if provided
+            if "seed" in kwargs:
+                res = env.reset(kwargs.get("seed"))
+            else:
+                res = env.reset()
+        except Exception:
+            res = env.reset()
+    if isinstance(res, tuple):
+        # gymnasium: (obs, info)
+        return res
+    # classic gym: obs
+    return res, {}
+
+
+def _step_env(env, action):
+    """Normalize env.step to return (obs, reward, terminated, truncated, info).
+
+    For classic gym which returns (obs, reward, done, info), set truncated=False.
+    """
+    res = env.step(action)
+    if isinstance(res, tuple):
+        if len(res) == 5:
+            return res
+        if len(res) == 4:
+            obs, reward, done, info = res
+            return obs, reward, bool(done), False, info
+    raise RuntimeError("Unknown env.step() return signature")
 
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
@@ -94,15 +131,15 @@ class AtariPreprocessing(gym.Wrapper):
         return self.env.unwrapped.ale
 
     def reset(self, *, seed=None, options=None):
-        obs, info = self.env.reset(seed=seed, options=options)
+        obs, info = _reset_env(self.env, seed=seed, options=options)
         self.lives = self.ale.lives()
         # Noop reset
         noops = self.env.unwrapped.np_random.integers(1, self.noop_max + 1) if self.noop_max > 0 else 0
         for _ in range(noops):
-            obs, _, terminated, truncated, info2 = self.env.step(0)
+            obs, _, terminated, truncated, info2 = _step_env(self.env, 0)
             info.update(info2)
             if terminated or truncated:
-                obs, info = self.env.reset(seed=seed, options=options)
+                obs, info = _reset_env(self.env, seed=seed, options=options)
 
         self.ale.getScreenRGB(self.obs_buffer[0])
         self.obs_buffer[1].fill(0)
@@ -114,7 +151,7 @@ class AtariPreprocessing(gym.Wrapper):
         terminated = truncated = False
         info = {}
         for t in range(self.frame_skip):
-            _, reward, terminated, truncated, info = self.env.step(action)
+            _, reward, terminated, truncated, info = _step_env(self.env, action)
             total_reward += reward
             if terminated or truncated:
                 break
@@ -149,13 +186,13 @@ class FrameStack(gym.Wrapper):
         self.observation_space = Box(low=low, high=high, dtype=env.observation_space.dtype)
 
     def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
+        obs, info = _reset_env(self.env, **kwargs)
         for _ in range(self.num_stack):
             self.frames.append(obs)
         return self._get_obs(), info
 
     def step(self, action):
-        obs, rew, term, trunc, info = self.env.step(action)
+        obs, rew, term, trunc, info = _step_env(self.env, action)
         self.frames.append(obs)
         return self._get_obs(), rew, term, trunc, info
 
@@ -810,7 +847,7 @@ class TrainCfg:
 
 
 def collect_real_data(env, dataset: EpisodeBuffer, num_steps: int, epsilon: float, device: torch.device, policy: Optional[ActorCritic] = None):
-    obs, _ = env.reset()
+    obs, _ = _reset_env(env)
     ep_obs, ep_act, ep_rew, ep_end, ep_trunc = [], [], [], [], []
     steps = 0
     episodes = 0
@@ -818,6 +855,7 @@ def collect_real_data(env, dataset: EpisodeBuffer, num_steps: int, epsilon: floa
     # AC hidden state is not used in data collection; we use epsilon-random unless policy provided
     hx = cx = None
 
+    pbar = tqdm(total=num_steps, desc="Collect")
     while steps < num_steps:
         if np.random.rand() < epsilon or policy is None:
             act = env.action_space.sample()
@@ -834,7 +872,7 @@ def collect_real_data(env, dataset: EpisodeBuffer, num_steps: int, epsilon: floa
                 dist = torch.distributions.Categorical(logits=logits)
                 act = int(dist.sample().item())
 
-        next_obs, reward, terminated, truncated, info = env.step(act)
+        next_obs, reward, terminated, truncated, info = _step_env(env, act)
         done = terminated or truncated
 
         # store transition at time t (we store obs stack)
@@ -846,6 +884,7 @@ def collect_real_data(env, dataset: EpisodeBuffer, num_steps: int, epsilon: floa
 
         obs = next_obs
         steps += 1
+        pbar.update(1)
 
         if done:
             # last observation (optional): we do not append terminal next frame; consistent with many datasets
@@ -862,6 +901,7 @@ def collect_real_data(env, dataset: EpisodeBuffer, num_steps: int, epsilon: floa
             hx = cx = None
 
     # flush partial episode
+    pbar.close()
     if len(ep_obs) > 5:
         dataset.add_episode(
             obs_seq=np.asarray(ep_obs, dtype=np.uint8),
@@ -958,7 +998,7 @@ def train_onefile(cfg: TrainCfg):
         # Train denoiser
         denoiser.train()
         wm_losses = []
-        for _ in range(cfg.steps_wm):
+        for _ in trange(cfg.steps_wm, desc="WM"):
             b = dataset.sample(cfg.batch_wm, cfg.seq_len_wm)
             if b is None:
                 continue
@@ -973,7 +1013,7 @@ def train_onefile(cfg: TrainCfg):
         # Train reward/end
         rew_end.train()
         re_losses = []
-        for _ in range(cfg.steps_rew_end):
+        for _ in trange(cfg.steps_rew_end, desc="RewEnd"):
             b = dataset.sample(cfg.batch_wm, cfg.seq_len_wm)
             if b is None:
                 continue
@@ -989,7 +1029,7 @@ def train_onefile(cfg: TrainCfg):
         actor.train()
         wm_env = WorldModelEnv(denoiser, rew_end, dataset, sampler_cfg, cfg.ac_batch_envs, cfg.img_size, cfg.frame_stack, cfg.img_channels, device)
         ac_losses = []
-        for _ in range(cfg.steps_ac):
+        for _ in trange(cfg.steps_ac, desc="AC"):
             # rollout inside world model env
             B = cfg.ac_batch_envs
             hx = torch.zeros(B, acfg.lstm_dim, device=device)
@@ -1104,7 +1144,7 @@ def evaluate_real(env, actor: ActorCritic, device: torch.device, episodes: int =
     actor.eval()
     rets = []
     for _ in range(episodes):
-        obs, _ = env.reset()
+        obs, _ = _reset_env(env)
         done = False
         ep_ret = 0.0
         hx = torch.zeros(1, actor.cfg.lstm_dim, device=device)
@@ -1115,7 +1155,7 @@ def evaluate_real(env, actor: ActorCritic, device: torch.device, episodes: int =
             o = normalize_obs_uint8(o)
             logits, val, (hx, cx) = actor.step(o, (hx, cx))
             act = logits.argmax(dim=-1).item()
-            obs, r, term, trunc, _ = env.step(act)
+            obs, r, term, trunc, _ = _step_env(env, act)
             ep_ret += r
             done = term or trunc
         rets.append(ep_ret)
@@ -1136,7 +1176,7 @@ def play(cfg_path: str, render: bool):
     actor.load_state_dict(ckpt["actor"])
     actor.eval()
 
-    obs, _ = env.reset()
+    obs, _ = _reset_env(env)
     hx = torch.zeros(1, actor.cfg.lstm_dim, device=device)
     cx = torch.zeros(1, actor.cfg.lstm_dim, device=device)
     done = False
@@ -1148,7 +1188,7 @@ def play(cfg_path: str, render: bool):
         with torch.no_grad():
             logits, val, (hx, cx) = actor.step(o, (hx, cx))
         act = logits.argmax(dim=-1).item()
-        obs, r, term, trunc, _ = env.step(act)
+        obs, r, term, trunc, _ = _step_env(env, act)
         ep_ret += r
         done = term or trunc
     print(f"Episode return: {ep_ret}")

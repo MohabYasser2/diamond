@@ -3,7 +3,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import ale_py
 import gymnasium
-from gymnasium.vector import AsyncVectorEnv
+import sys
+from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
 import numpy as np
 import torch
 from torch import Tensor
@@ -35,7 +36,13 @@ def make_atari_env(
         )
         return env
 
-    env = AsyncVectorEnv([env_fn for _ in range(num_envs)])
+    # On Windows multiprocessing with AsyncVectorEnv can cause BrokenPipe/EOF errors.
+    # Use a synchronous vector env on Windows or when only a single env is requested
+    # to avoid spawning worker processes that may fail to pickle or communicate.
+    if sys.platform == "win32" or num_envs == 1:
+        env = SyncVectorEnv([env_fn for _ in range(num_envs)])
+    else:
+        env = AsyncVectorEnv([env_fn for _ in range(num_envs)])
 
     # The AsyncVectorEnv resets the env on termination, which means that it will
     # reset the environment if we use the default AtariPreprocessing of gymnasium with

@@ -2,12 +2,12 @@ defaults:
   - _self_
   - env: atari
   - agent: default
-
 hydra:
   job:
     chdir: True
 
 wandb:
+  enable: true # default; override with wandb.enable=true
   mode: disabled
   project: null
   entity: null
@@ -23,13 +23,13 @@ initialization:
   load_actor_critic: True
 
 common:
-  devices: 0  # int, list of int, cpu, or all 
+  devices: 0 # int, list of int, cpu, or all
   seed: null
   resume: False # do not modify, set by scripts/resume.sh only.
 
 checkpointing:
   save_agent_every: 5
-  num_to_keep: 11  # number of checkpoints to keep, use null to disable
+  num_to_keep: 11 # number of checkpoints to keep, use null to disable
 
 collection:
   train:
@@ -38,7 +38,7 @@ collection:
     num_steps_total: 100000
     first_epoch:
       min: 5000
-      max: 10000  # null: no maximum
+      max: 10000 # null: no maximum
       threshold_rew: 10
     steps_per_epoch: 100
   test:
@@ -48,7 +48,7 @@ collection:
     num_final_episodes: 100
 
 static_dataset:
-  path: null  # if specified, will disable train/test data collection
+  path: null # if specified, will disable train/test data collection
   ignore_sample_weights: True
 
 training:
@@ -73,8 +73,8 @@ world_model_env:
     sigma_min: 2e-3
     sigma_max: 5.0
     rho: 7
-    order: 1  # 1: Euler, 2: Heun
-    s_churn: 0.0  # Amount of stochasticity
+    order: 1 # 1: Euler, 2: Heun
+    s_churn: 0.0 # Amount of stochasticity
     s_tmin: 0.0
     s_tmax: ${eval:'float("inf")'}
     s_noise: 1.0
@@ -95,7 +95,7 @@ denoiser:
     lr: 1e-4
     weight_decay: 1e-2
     eps: 1e-8
-  
+
   sigma_distribution: # log normal distribution for sigma during training
     _target_: models.diffusion.SigmaDistributionConfig
     loc: -0.4

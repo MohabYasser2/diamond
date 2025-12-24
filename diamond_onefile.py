@@ -3,9 +3,116 @@
 # Notes:
 # - Preserves DIAMOND pipeline structure in one file.
 # - Avoids torcheval/torchaudio pitfalls (no confusion-matrix logging).
-# - Uses Gymnasium Atari. Requires AutoROM --accept-license.
+# - Uses Gym Atari. Requires AutoROM --accept-license.
 #
-# This is DIAMOND-style, not byte-identical to the original repo (Hydra/DDP/dataset plumbing differs).
+# IMPORTANT: Where this file does NOT replicate the DIAMOND repo
+#
+# This is where precision matters.
+#
+# 1. World model architecture — ❌ simplified
+#
+# DIAMOND uses:
+#
+# Diffusion-based world model
+#
+# Time-conditioned noise schedule
+#
+# UNet-style architecture
+#
+# Latent denoising objective
+#
+# Your file uses:
+#
+# Deterministic CNN autoencoder
+#
+# Single-step MSE prediction
+#
+# ➡️ This is the largest deviation.
+#
+# Consequence:
+# Your model learns deterministic pixel prediction, not stochastic dynamics.
+# That changes the theoretical guarantees and robustness.
+#
+# 2. No latent dynamics model — ❌ missing
+#
+# DIAMOND:
+#
+# Encodes observations into a latent space
+#
+# Predicts dynamics in latent space
+#
+# Decodes only when needed
+#
+# Your file:
+#
+# Predicts pixels directly
+#
+# No latent rollout
+#
+# ➡️ This affects long-horizon imagination quality.
+#
+# 3. No diffusion noise / sampling — ❌ missing
+#
+# DIAMOND’s key innovation is:
+#
+# Training with noise
+#
+# Sampling multiple futures
+#
+# Robust planning under uncertainty
+#
+# Your file:
+#
+# Single deterministic next state
+#
+# ➡️ This removes the “Diffusion” from DIAMOND.
+#
+# 4. Actor training objective — ⚠️ simplified
+#
+# DIAMOND:
+#
+# PPO-style or V-trace–style objectives
+#
+# Careful advantage normalization
+#
+# Scheduled imagination depth
+#
+# Your file:
+#
+# Simple A2C-style loss
+#
+# Short imagined rollouts
+#
+# No entropy regularization
+#
+# This is acceptable for replication, but not faithful.
+#
+# 5. Dataset usage — ⚠️ partial
+#
+# DIAMOND:
+#
+# Reuses large replay buffers
+#
+# Mixes real + imagined data carefully
+#
+# Your file:
+#
+# Single replay buffer
+#
+# No dataset curriculum
+#
+# No balancing
+#
+# Still OK, but simplified.
+#
+# Final verdict (clear and honest)
+# If your goal is:
+#
+# “Replicate the DIAMOND repo exactly”
+# ➡️ ❌ No, this does not replicate it exactly.
+#
+# (See repository source for full, exact implementation.)
+
 
 import os
 import math
